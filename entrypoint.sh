@@ -21,6 +21,7 @@ ARGS=(
   --ip=0.0.0.0
   --port="$PORT"
   --no-browser
+  --allow-root
   --ServerApp.password="$HASHED_PASSWORD"
   --ServerApp.token=
   --ServerApp.allow_remote_access=True
