@@ -1,40 +1,41 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export PORT="${PORT:-8080}"
-export JUPYTER_ROOT_DIR="${JUPYTER_ROOT_DIR:-/data}"
-export JUPYTER_COLLABORATIVE="${JUPYTER_COLLABORATIVE:-true}"
-export JUPYTER_ALLOW_ORIGIN="${JUPYTER_ALLOW_ORIGIN:-*}"
-export JUPYTER_BASE_URL="${JUPYTER_BASE_URL:-/}"
+: "${JUPYTER_PASSWORD:?JUPYTER_PASSWORD is required}"
+PORT="${PORT:-8080}"
+ROOT_DIR="${JUPYTER_ROOT_DIR:-/data}"
+YDOC_SAVE_DELAY="${YDOC_SAVE_DELAY:-0.5}"
+YSTORE_DB_PATH="${YSTORE_DB_PATH:-${ROOT_DIR}/.jupyter_ystore.db}"
 
-mkdir -p "$JUPYTER_ROOT_DIR"
+mkdir -p "$ROOT_DIR" /root/.jupyter
 
-if [[ -z "${JUPYTER_PASSWORD:-}" ]]; then
-  echo "ERROR: JUPYTER_PASSWORD is not set. Add it in Railway Variables." >&2
-  exit 1
-fi
+HASH="$(python - <<'PY'
+import os
+from jupyter_server.auth import passwd
+print(passwd(os.environ['JUPYTER_PASSWORD']))
+PY
+)"
 
-HASHED_PASSWORD="$(python -c 'import os; from jupyter_server.auth import passwd; print(passwd(os.environ["JUPYTER_PASSWORD"]))')"
+cat > /root/.jupyter/jupyter_server_config.py <<PY
+c = get_config()
 
-ARGS=(
-  lab
-  --ip=0.0.0.0
-  --port="$PORT"
-  --no-browser
+c.ServerApp.root_dir = r"${ROOT_DIR}"
+c.ServerApp.allow_origin = "*"
+c.ServerApp.open_browser = False
+
+c.IdentityProvider.token = ""
+c.PasswordIdentityProvider.hashed_password = r"${HASH}"
+
+c.YDocExtension.document_save_delay = ${YDOC_SAVE_DELAY}
+c.SQLiteYStore.db_path = r"${YSTORE_DB_PATH}"
+PY
+
+echo "Starting JupyterLab on port ${PORT}"
+echo "Root dir: ${ROOT_DIR}"
+echo "YStore DB: ${YSTORE_DB_PATH}"
+
+exec jupyter lab \
+  --ip=0.0.0.0 \
+  --port="${PORT}" \
+  --no-browser \
   --allow-root
-  --ServerApp.password="$HASHED_PASSWORD"
-  --ServerApp.token=
-  --ServerApp.allow_remote_access=True
-  --ServerApp.root_dir="$JUPYTER_ROOT_DIR"
-  --ServerApp.base_url="$JUPYTER_BASE_URL"
-)
-
-if [[ "$JUPYTER_ALLOW_ORIGIN" != "" ]]; then
-  ARGS+=(--ServerApp.allow_origin="$JUPYTER_ALLOW_ORIGIN")
-fi
-
-if [[ "$JUPYTER_COLLABORATIVE" == "true" ]]; then
-  ARGS+=(--collaborative)
-fi
-
-exec tini -g -- jupyter "${ARGS[@]}"
